@@ -187,3 +187,79 @@ def routine_stats(user_id: str, db: Session = Depends(get_db)):
         {"title": title, "done": int(done or 0), "total": total, "rate": round(done / total, 2) if total > 0 else 0.0}
         for title, total, done in data
     ]
+@app.patch("/alarms/{alarm_id}/status")
+def update_alarm_status(alarm_id: str, status: str, db: Session = Depends(get_db)):
+    alarm = db.query(models.Alarm).filter(models.Alarm.alarm_id == alarm_id).first()
+    if not alarm:
+        raise HTTPException(status_code=404, detail="Alarm not found")
+    alarm.status = status
+    db.commit()
+    return {"message": f"Alarm status updated to {status}"}
+
+# 알람 전체 조회
+@app.get("/alarms")
+def get_alarms(user_id: str, db: Session = Depends(get_db)):
+    alarms = db.query(models.Alarm).filter(models.Alarm.user_id == user_id).all()
+    return [
+        {
+            "alarm_id": a.alarm_id,
+            "time": a.time,
+            "status": a.status
+        } for a in alarms
+    ]
+
+# 특정 알람 조회
+@app.get("/alarms/{alarm_id}")
+def get_alarm_detail(alarm_id: str, db: Session = Depends(get_db)):
+    alarm = db.query(models.Alarm).filter(models.Alarm.alarm_id == alarm_id).first()
+    if not alarm:
+        raise HTTPException(status_code=404, detail="Alarm not found")
+    repeat_days = db.query(models.AlarmRepeatDay.weekday).filter(models.AlarmRepeatDay.alarm_id == alarm_id).all()
+    routines = db.query(models.AlarmRoutine).filter(models.AlarmRoutine.alarm_id == alarm_id).order_by(models.AlarmRoutine.order).all()
+    routine_list = []
+    for r in routines:
+        rt = db.query(models.Routine).filter(models.Routine.routine_id == r.routine_id).first()
+        if rt:
+            routine_list.append(rt.__dict__)
+    return {
+        "alarm_id": alarm.alarm_id,
+        "time": alarm.time,
+        "status": alarm.status,
+        "repeat_days": [r.weekday for r in repeat_days],
+        "routines": routine_list
+    }
+
+# 월별 루틴 성공률 달력 (일자별 수행률)
+@app.get("/calendar")
+def calendar_view(user_id: str, year: int, month: int, db: Session = Depends(get_db)):
+    from sqlalchemy import extract, func
+    results = db.query(
+        func.date(models.AlarmExecutionLog.scheduled_ts).label("date"),
+        func.avg(models.AlarmExecutionLog.success_rate).label("avg_rate")
+    ).join(models.Alarm, models.Alarm.alarm_id == models.AlarmExecutionLog.alarm_id).filter(
+        models.Alarm.user_id == user_id,
+        extract("year", models.AlarmExecutionLog.scheduled_ts) == year,
+        extract("month", models.AlarmExecutionLog.scheduled_ts) == month
+    ).group_by("date").all()
+    return [{"date": str(r.date), "success_rate": float(round(r.avg_rate, 2))} for r in results]
+
+# 주간 피드백 요약
+@app.get("/weekly-feedback")
+def weekly_feedback(user_id: str, db: Session = Depends(get_db)):
+    from sqlalchemy import func, text
+    results = db.execute(text("""
+        SELECT
+            WEEK(scheduled_ts, 1) as week_num,
+            COUNT(*) as total,
+            SUM(completed_routines) as done,
+            ROUND(SUM(completed_routines)/SUM(total_routines), 2) as rate
+        FROM alarm_exec_log
+        JOIN alarm ON alarm_exec_log.alarm_id = alarm.alarm_id
+        WHERE alarm.user_id = :uid
+        GROUP BY week_num
+        ORDER BY week_num DESC
+        LIMIT 4
+    """), {"uid": user_id}).fetchall()
+    return [
+        {"week": r[0], "done": r[1], "completed": int(r[2] or 0), "rate": float(r[3] or 0)} for r in results
+    ]
