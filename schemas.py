@@ -9,7 +9,7 @@ class RoutineCreate(BaseModel):
     type: str
     goal_value: Optional[int] = None
     duration_seconds: Optional[int] = None
-    deadline_time: Optional[str] = None
+    deadline_time: Optional[time] = None
     success_note: Optional[str] = None
 
 class RoutineOut(RoutineCreate):

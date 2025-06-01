@@ -34,10 +34,13 @@ def login(req: LoginRequest):
 
 @app.post("/routines", response_model=schemas.RoutineOut)
 def create_routine(routine: schemas.RoutineCreate, db: Session = Depends(get_db)):
-    deadline_time_obj = (
-    datetime.strptime(routine.deadline_time + ":00", "%H:%M:%S").time()
-    if routine.deadline_time else None
-)
+    try:
+        deadline_time_obj = (
+            datetime.strptime(routine.deadline_time, "%H:%M").time()
+            if isinstance(routine.deadline_time, str) else routine.deadline_time
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid deadline_time format")
 
     db_routine = models.Routine(
         routine_id=str(uuid.uuid4()),
@@ -53,7 +56,6 @@ def create_routine(routine: schemas.RoutineCreate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(db_routine)
 
-    # ✅ deadline_time을 문자열로 바꿔서 리턴
     return {
         "routine_id": db_routine.routine_id,
         "user_id": db_routine.user_id,
