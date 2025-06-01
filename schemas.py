@@ -4,12 +4,12 @@ from datetime import time
 
 
 class RoutineCreate(BaseModel):
-    user_id: str
+    # user_id: str  ❌ 제거
     title: str
     type: str
     goal_value: Optional[int] = None
     duration_seconds: Optional[int] = None
-    deadline_time: Optional[time] = None
+    deadline_time: Optional[str] = None
     success_note: Optional[str] = None
 
 class RoutineOut(RoutineCreate):

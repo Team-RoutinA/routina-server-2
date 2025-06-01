@@ -7,7 +7,7 @@ from typing import List
 from pydantic import BaseModel
 from datetime import time as time_type
 from datetime import datetime
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
 from fastapi import Query
 
@@ -37,8 +37,12 @@ def login(req: LoginRequest):
 from datetime import datetime, time as time_type
 
 @app.post("/routines", response_model=schemas.RoutineOut)
-def create_routine(routine: schemas.RoutineCreate,user_id: str = Query(...), db: Session = Depends(get_db)):
-    # ✅ deadline_time 타입 처리
+def create_routine(
+    routine: schemas.RoutineCreate,
+    user_id: str = Header(..., description="User ID from client header"),  # ✅ user_id from header
+    db: Session = Depends(get_db)
+):
+    # ⏰ deadline_time 처리
     if isinstance(routine.deadline_time, str):
         try:
             deadline_time_obj = datetime.strptime(routine.deadline_time, "%H:%M").time()
@@ -47,10 +51,10 @@ def create_routine(routine: schemas.RoutineCreate,user_id: str = Query(...), db:
     else:
         deadline_time_obj = routine.deadline_time
 
-    # ✅ kwargs로 생성
+    # ✅ DB 객체 생성
     kwargs = {
         "routine_id": str(uuid.uuid4()),
-        "user_id": routine.user_id,
+        "user_id": user_id,  # ✅ Header에서 받은 user_id 사용
         "title": routine.title,
         "type": routine.type,
         "goal_value": routine.goal_value,
