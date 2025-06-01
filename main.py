@@ -35,9 +35,10 @@ def login(req: LoginRequest):
 @app.post("/routines", response_model=schemas.RoutineOut)
 def create_routine(routine: schemas.RoutineCreate, db: Session = Depends(get_db)):
     deadline_time_obj = (
-        datetime.strptime(routine.deadline_time, "%H:%M").time()
-        if routine.deadline_time else None
-    )
+    datetime.strptime(routine.deadline_time + ":00", "%H:%M:%S").time()
+    if routine.deadline_time else None
+)
+
     db_routine = models.Routine(
         routine_id=str(uuid.uuid4()),
         user_id=routine.user_id,
