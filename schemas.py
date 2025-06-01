@@ -30,6 +30,7 @@ class AlarmCreate(BaseModel):
     routines: list["AlarmRoutineIn"]
 
 class AlarmUpdate(BaseModel):
+    user_id: str
     time: Optional[str]
     status: Optional[str]
     sound_volume: Optional[float]

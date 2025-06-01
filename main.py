@@ -7,6 +7,8 @@ from typing import List
 from pydantic import BaseModel
 from datetime import time as time_type
 from datetime import datetime
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -62,11 +64,26 @@ def create_routine(routine: schemas.RoutineCreate, db: Session = Depends(get_db)
         "success_note": db_routine.success_note
     }
 
-
-@app.get("/routines", response_model=List[schemas.RoutineOut])
-def get_routines(user_id: str, db: Session = Depends(get_db)):
-    return db.query(models.Routine).filter(models.Routine.user_id == user_id).all()
-
+router = APIRouter()
+@router.get("/routines", response_model=List[schemas.RoutineOut])
+def get_routines(db: Session = Depends(get_db)):
+    db_routines = db.query(models.Routine).all()
+    
+    # deadline_time이 datetime.time -> str로 변환
+    routines_out = []
+    for routine in db_routines:
+        routines_out.append({
+            "routine_id": routine.routine_id,
+            "user_id": routine.user_id,
+            "title": routine.title,
+            "type": routine.type,
+            "goal_value": routine.goal_value,
+            "duration_seconds": routine.duration_seconds,
+            "deadline_time": routine.deadline_time.strftime("%H:%M") if routine.deadline_time else None,
+            "success_note": routine.success_note
+        })
+    
+    return routines_out
 @app.post("/alarms", response_model=schemas.AlarmOut)
 def create_alarm(alarm: schemas.AlarmCreate, db: Session = Depends(get_db)):
     alarm_id = str(uuid.uuid4())
@@ -90,10 +107,19 @@ def create_alarm(alarm: schemas.AlarmCreate, db: Session = Depends(get_db)):
             order=r.order
         ))
     db.commit()
+    for wd in alarm.repeat_days:
+        db.add(models.AlarmRepeatDay(
+            id=str(uuid.uuid4()),
+            alarm_id=alarm_id,
+            weekday=wd
+        ))
+    db.commit()
+
     return {
         "alarm_id": alarm_id,
-        "time": db_alarm.time,
+        "time": alarm.time.strftime("%H:%M") if isinstance(alarm.time, time_type) else alarm.time,
         "status": db_alarm.status,
+        "sound_volume": alarm.sound_volume,
         "routines": alarm.routines,
         "repeat_days": alarm.repeat_days
     }
@@ -132,7 +158,7 @@ def get_dashboard(user_id: str, db: Session = Depends(get_db)):
         weekdays = [row.weekday for row in repeat_days]
         result.append({
             "alarm_id": alarm.alarm_id,
-            "time": alarm.time,
+            "time": alarm.time.strftime("%H:%M") if alarm.time else None,
             "status": alarm.status,
             "repeat_days": weekdays,
             "routines": [r.__dict__ for r in routines]
@@ -143,15 +169,55 @@ def get_dashboard(user_id: str, db: Session = Depends(get_db)):
         "routines": [r.__dict__ for r in all_routines]
     }
 @app.put("/routines/{routine_id}", response_model=schemas.RoutineOut)
-def update_routine(routine_id: str, update: schemas.RoutineCreate, db: Session = Depends(get_db)):
-    r = db.query(models.Routine).filter(models.Routine.routine_id == routine_id, models.Routine.user_id == update.user_id).first()
+def update_routine(
+    routine_id: str,
+    update: schemas.RoutineCreate,  # or RoutineUpdate if you made separate schema
+    db: Session = Depends(get_db)
+):
+    r = db.query(models.Routine).filter(
+        models.Routine.routine_id == routine_id,
+        models.Routine.user_id == update.user_id
+    ).first()
+
     if not r:
         raise HTTPException(status_code=404, detail="Routine not found")
-    for key, value in update.dict().items():
+
+    # ⏰ deadline_time 변환
+    if update.deadline_time:
+        try:
+            deadline_time_obj = datetime.strptime(update.deadline_time, "%H:%M").time()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid time format. Use 'HH:MM'.")
+    else:
+        deadline_time_obj = None
+
+    # 📌 deadline_time은 수동으로 먼저 설정
+    r.deadline_time = deadline_time_obj
+
+    # 🧹 user_id는 변경하지 않도록 제거
+    update_data = update.dict()
+    update_data.pop("user_id", None)
+    update_data.pop("deadline_time", None)  # 이미 따로 처리했으므로 제외
+
+    # 🔁 나머지 필드 업데이트
+    for key, value in update_data.items():
         setattr(r, key, value)
+
     db.commit()
     db.refresh(r)
-    return r
+
+    # ⏎ 응답 모델 반환 (자동 변환)
+    return {
+        "routine_id": r.routine_id,
+        "user_id": r.user_id,
+        "title": r.title,
+        "type": r.type,
+        "goal_value": r.goal_value,
+        "duration_seconds": r.duration_seconds,
+        "deadline_time": r.deadline_time.strftime("%H:%M") if r.deadline_time else None,
+        "success_note": r.success_note,
+    }
+
 
 # 루틴 삭제
 @app.delete("/routines/{routine_id}")
@@ -236,7 +302,7 @@ def get_alarms(user_id: str, db: Session = Depends(get_db)):
         routines = db.query(models.AlarmRoutine).filter(models.AlarmRoutine.alarm_id == alarm.alarm_id).order_by(models.AlarmRoutine.order).all()
         result.append({
             "alarm_id": alarm.alarm_id,
-            "time": alarm.time,
+            "time": alarm.time.strftime("%H:%M"),
             "status": alarm.status,
             "sound_volume": alarm.sound_volume,
             "repeat_days": list(map(int, alarm.repeat_days.split(','))) if alarm.repeat_days else [],
@@ -256,12 +322,22 @@ def get_alarm_detail(alarm_id: str, db: Session = Depends(get_db)):
     for r in routines:
         rt = db.query(models.Routine).filter(models.Routine.routine_id == r.routine_id).first()
         if rt:
-            routine_list.append(rt.__dict__)
+            routine_list.append({
+                "routine_id": rt.routine_id,
+                "user_id": rt.user_id,
+                "title": rt.title,
+                "type": rt.type,
+                "goal_value": rt.goal_value,
+                "duration_seconds": rt.duration_seconds,
+                "deadline_time": rt.deadline_time.strftime("%H:%M") if rt.deadline_time else None,
+                "success_note": rt.success_note
+            })
+
     return {
         "alarm_id": alarm.alarm_id,
-        "time": alarm.time,
+        "time": alarm.time.strftime("%H:%M") if alarm.time else None,
         "status": alarm.status,
-        "repeat_days": [r.weekday for r in repeat_days],
+        "repeat_days": [r[0] for r in repeat_days],  # 수정
         "routines": routine_list
     }
 
@@ -306,7 +382,7 @@ def update_alarm(alarm_id: str, update: schemas.AlarmUpdate, db: Session = Depen
     if not alarm:
         raise HTTPException(status_code=404, detail="Alarm not found")
     if update.time:
-        alarm.time = update.time
+        alarm.time = time_type.fromisoformat(update.time)
     if update.status:
         alarm.status = update.status
     if update.sound_volume is not None:
@@ -351,3 +427,4 @@ def update_alarm_execution(exec_id: str, data: dict, db: Session = Depends(get_d
         "success_rate": log.success_rate,
         "routine_execution_details": [r.__dict__ for r in updated]
     }
+app.include_router(router)
