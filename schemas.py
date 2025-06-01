@@ -14,6 +14,13 @@ class RoutineCreate(BaseModel):
 
 class RoutineOut(RoutineCreate):
     routine_id: str
+    user_id: str   # ✅ 이 줄이 빠져 있으면 Swift가 에러 남
+    title: str
+    type: str
+    goal_value: Optional[int]
+    duration_seconds: Optional[int]
+    deadline_time: Optional[str]
+    success_note: Optional[str]
 
 class AlarmRoutineLink(BaseModel):
     routine_id: str
