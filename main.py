@@ -98,7 +98,7 @@ def get_routines(user_id: str = Query(...), db: Session = Depends(get_db)):
     
     return routines_out
 @app.post("/alarms", response_model=schemas.AlarmOut)
-def create_alarm(alarm: schemas.AlarmCreate, db: Session = Depends(get_db)):
+def create_alarm(alarm: schemas.AlarmCreate,user_id: str = Query(...), db: Session = Depends(get_db)):
     alarm_id = str(uuid.uuid4())
     time_obj = time_type.fromisoformat(alarm.time)
     db_alarm = models.Alarm(
@@ -157,7 +157,7 @@ def set_alarm_repeat_days(
     return entries
 
 @app.get("/dashboard")
-def get_dashboard(user_id: str, db: Session = Depends(get_db)):
+def get_dashboard(user_id: str = Query(...), db: Session = Depends(get_db)):
     alarms = db.query(models.Alarm).filter(models.Alarm.user_id == user_id).all()
     result = []
     for alarm in alarms:
@@ -185,6 +185,7 @@ def get_dashboard(user_id: str, db: Session = Depends(get_db)):
 def update_routine(
     routine_id: str,
     update: schemas.RoutineCreate,  # or RoutineUpdate if you made separate schema
+    user_id: str = Query(...),
     db: Session = Depends(get_db)
 ):
     r = db.query(models.Routine).filter(
@@ -308,7 +309,7 @@ def update_alarm_status(alarm_id: str, status: str, db: Session = Depends(get_db
 
 # 알람 전체 조회
 @app.get("/alarms", response_model=List[schemas.AlarmOut])
-def get_alarms(user_id: str, db: Session = Depends(get_db)):
+def get_alarms(user_id: str = Query(...), db: Session = Depends(get_db)):
     alarms = db.query(models.Alarm).filter(models.Alarm.user_id == user_id).all()
     result = []
     for alarm in alarms:
@@ -325,7 +326,7 @@ def get_alarms(user_id: str, db: Session = Depends(get_db)):
 
 # 특정 알람 조회
 @app.get("/alarms/{alarm_id}")
-def get_alarm_detail(alarm_id: str, db: Session = Depends(get_db)):
+def get_alarm_detail(alarm_id: str,user_id: str = Query(...), db: Session = Depends(get_db)):
     alarm = db.query(models.Alarm).filter(models.Alarm.alarm_id == alarm_id).first()
     if not alarm:
         raise HTTPException(status_code=404, detail="Alarm not found")
@@ -390,7 +391,7 @@ def weekly_feedback(user_id: str, db: Session = Depends(get_db)):
     ]
 # 알람 수정 + 반복 요일도 함께 수정
 @app.put("/alarms/{alarm_id}")
-def update_alarm(alarm_id: str, update: schemas.AlarmUpdate, db: Session = Depends(get_db)):
+def update_alarm(alarm_id: str, update: schemas.AlarmUpdate,user_id: str = Query(...), db: Session = Depends(get_db)):
     alarm = db.query(models.Alarm).filter(models.Alarm.alarm_id == alarm_id, models.Alarm.user_id == update.user_id).first()
     if not alarm:
         raise HTTPException(status_code=404, detail="Alarm not found")
