@@ -4,6 +4,7 @@ from database import SessionLocal, engine
 import models, schemas
 import uuid
 from typing import List
+from pydantic import BaseModel
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -15,6 +16,17 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# ✅ 로그인 엔드포인트 (고정된 계정 검증)
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+@app.post("/login")
+def login(req: LoginRequest):
+    if req.email == "test@gmail.com" and req.password == "test":
+        return {"user_id": "test"}
+    raise HTTPException(status_code=401, detail="Invalid credentials")
 
 @app.post("/routines", response_model=schemas.RoutineOut)
 def create_routine(routine: schemas.RoutineCreate, db: Session = Depends(get_db)):
@@ -39,31 +51,26 @@ def create_alarm(alarm: schemas.AlarmCreate, db: Session = Depends(get_db)):
         user_id=alarm.user_id,
         time=alarm.time,
         status=alarm.status,
-        sound_volume=alarm.sound_volume
+        sound_volume=alarm.sound_volume,
+        repeat_days=','.join(map(str, alarm.repeat_days or []))
     )
     db.add(db_alarm)
     db.commit()
 
-    routine_objs = []
     for r in alarm.routines:
-        alr = models.AlarmRoutine(
+        db.add(models.AlarmRoutine(
             alr_id=str(uuid.uuid4()),
             alarm_id=alarm_id,
             routine_id=r.routine_id,
             order=r.order
-        )
-        db.add(alr)
-        routine = db.query(models.Routine).filter(models.Routine.routine_id == r.routine_id).first()
-        if routine:
-            routine_objs.append(routine)
-
+        ))
     db.commit()
-
     return {
         "alarm_id": alarm_id,
         "time": db_alarm.time,
         "status": db_alarm.status,
-        "routines": routine_objs
+        "routines": alarm.routines,
+        "repeat_days": alarm.repeat_days
     }
 
 @app.post("/alarms/{alarm_id}/repeat-days", response_model=List[schemas.AlarmRepeatDayOut])
@@ -112,7 +119,7 @@ def get_dashboard(user_id: str, db: Session = Depends(get_db)):
     }
 @app.put("/routines/{routine_id}", response_model=schemas.RoutineOut)
 def update_routine(routine_id: str, update: schemas.RoutineCreate, db: Session = Depends(get_db)):
-    r = db.query(models.Routine).filter(models.Routine.routine_id == routine_id).first()
+    r = db.query(models.Routine).filter(models.Routine.routine_id == routine_id, models.Routine.user_id == update.user_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="Routine not found")
     for key, value in update.dict().items():
@@ -123,17 +130,16 @@ def update_routine(routine_id: str, update: schemas.RoutineCreate, db: Session =
 
 # 루틴 삭제
 @app.delete("/routines/{routine_id}")
-def delete_routine(routine_id: str, db: Session = Depends(get_db)):
-    db.query(models.Routine).filter(models.Routine.routine_id == routine_id).delete()
+def delete_routine(routine_id: str, req: schemas.RoutineDelete, db: Session = Depends(get_db)):
+    db.query(models.Routine).filter(models.Routine.routine_id == routine_id, models.Routine.user_id == req.user_id).delete()
     db.commit()
     return {"message": "Routine deleted"}
 
 # 알람 삭제
 @app.delete("/alarms/{alarm_id}")
-def delete_alarm(alarm_id: str, db: Session = Depends(get_db)):
+def delete_alarm(alarm_id: str, req: schemas.AlarmDelete, db: Session = Depends(get_db)):
     db.query(models.AlarmRoutine).filter(models.AlarmRoutine.alarm_id == alarm_id).delete()
-    db.query(models.AlarmRepeatDay).filter(models.AlarmRepeatDay.alarm_id == alarm_id).delete()
-    db.query(models.Alarm).filter(models.Alarm.alarm_id == alarm_id).delete()
+    db.query(models.Alarm).filter(models.Alarm.alarm_id == alarm_id, models.Alarm.user_id == req.user_id).delete()
     db.commit()
     return {"message": "Alarm deleted"}
 
@@ -204,7 +210,8 @@ def get_alarms(user_id: str, db: Session = Depends(get_db)):
         {
             "alarm_id": a.alarm_id,
             "time": a.time,
-            "status": a.status
+            "status": a.status,
+            "repeat_days": [int(x) for x in a.repeat_days.split(",") if x.strip()]
         } for a in alarms
     ]
 
@@ -263,3 +270,55 @@ def weekly_feedback(user_id: str, db: Session = Depends(get_db)):
     return [
         {"week": r[0], "done": r[1], "completed": int(r[2] or 0), "rate": float(r[3] or 0)} for r in results
     ]
+# 알람 수정 + 반복 요일도 함께 수정
+@app.put("/alarms/{alarm_id}")
+def update_alarm(alarm_id: str, update: schemas.AlarmUpdate, db: Session = Depends(get_db)):
+    alarm = db.query(models.Alarm).filter(models.Alarm.alarm_id == alarm_id, models.Alarm.user_id == update.user_id).first()
+    if not alarm:
+        raise HTTPException(status_code=404, detail="Alarm not found")
+    if update.time:
+        alarm.time = update.time
+    if update.status:
+        alarm.status = update.status
+    if update.sound_volume is not None:
+        alarm.sound_volume = update.sound_volume
+    if update.repeat_days is not None:
+        alarm.repeat_days = ','.join(map(str, update.repeat_days))
+    db.commit()
+    return {"message": "Alarm updated", "alarm_id": alarm_id, "repeat_days": update.repeat_days}
+
+# 알람 실행 결과 루틴별 업데이트 (PUT)
+@app.put("/alarm-executions/{exec_id}")
+def update_alarm_execution(exec_id: str, data: dict, db: Session = Depends(get_db)):
+    log = db.query(models.AlarmExecutionLog).filter(models.AlarmExecutionLog.exec_id == exec_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    routines = data.get("routines", [])
+    completed = 0
+    for r in routines:
+        axr = db.query(models.AlarmExecutionRoutine).filter(
+            models.AlarmExecutionRoutine.exec_id == exec_id,
+            models.AlarmExecutionRoutine.routine_id == r["routine_id"]
+        ).first()
+        if axr:
+            axr.completed = int(r["completed"])
+            axr.actual_value = r.get("actual_value")
+            axr.completed_ts = r.get("completed_ts")
+            axr.abort_ts = r.get("abort_ts")
+            completed += int(r["completed"])
+
+    log.completed_routines = completed
+    log.success_rate = round(completed / log.total_routines, 3)
+    log.status = "SUCCESS" if completed == log.total_routines else ("PARTIAL" if completed > 0 else "ABORTED")
+    db.commit()
+
+    updated = db.query(models.AlarmExecutionRoutine).filter(models.AlarmExecutionRoutine.exec_id == exec_id).all()
+    return {
+        "exec_id": exec_id,
+        "alarm_id": log.alarm_id,
+        "status": log.status,
+        "total_routines": log.total_routines,
+        "completed_routines": log.completed_routines,
+        "success_rate": log.success_rate,
+        "routine_execution_details": [r.__dict__ for r in updated]
+    }

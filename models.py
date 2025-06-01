@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Time, Text, ForeignKey, DECIMAL
+from sqlalchemy import Column, String, Integer, Time, Text, ForeignKey, DECIMAL, Boolean
 from sqlalchemy.dialects.mysql import CHAR
 from database import Base
 import uuid
@@ -25,8 +25,10 @@ class Alarm(Base):
     alarm_id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(CHAR(36), ForeignKey("app_user.user_id"), nullable=False)
     time = Column(Time, nullable=False)
-    sound_volume = Column(DECIMAL(3, 2), nullable=False, default=0.8)
-    status = Column(String(20), default='Active')
+    vibration_on = Column(Boolean, default=True)
+    sound_volume = Column(DECIMAL(3, 2), nullable=False)
+    status = Column(String(20), default="Active")
+    repeat_days = Column(String(20), default="")  # 예: "1,2,3" → 월,화,수
 
 class AlarmRoutine(Base):
     __tablename__ = "alarm_routine"

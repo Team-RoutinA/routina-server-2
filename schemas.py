@@ -17,13 +17,22 @@ class RoutineOut(RoutineCreate):
 class AlarmRoutineLink(BaseModel):
     routine_id: str
     order: int
-
+class AlarmRoutineIn(BaseModel):
+    routine_id: str
+    order: int
 class AlarmCreate(BaseModel):
     user_id: str
-    time: time
-    status: Optional[str] = "Active"
+    time: str
+    status: str
     sound_volume: float
-    routines: List[AlarmRoutineLink]
+    repeat_days: Optional[List[int]] = []
+    routines: List[AlarmRoutineIn]
+
+class AlarmUpdate(BaseModel):
+    time: Optional[str]
+    status: Optional[str]
+    sound_volume: Optional[float]
+    repeat_days: Optional[List[int]] = []
 
 class AlarmOut(BaseModel):
     alarm_id: str
