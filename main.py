@@ -9,6 +9,8 @@ from datetime import time as time_type
 from datetime import datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from fastapi import Query
+
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -35,7 +37,7 @@ def login(req: LoginRequest):
 from datetime import datetime, time as time_type
 
 @app.post("/routines", response_model=schemas.RoutineOut)
-def create_routine(routine: schemas.RoutineCreate, db: Session = Depends(get_db)):
+def create_routine(routine: schemas.RoutineCreate,user_id: str = Query(...), db: Session = Depends(get_db)):
     # ✅ deadline_time 타입 처리
     if isinstance(routine.deadline_time, str):
         try:
@@ -77,7 +79,7 @@ def create_routine(routine: schemas.RoutineCreate, db: Session = Depends(get_db)
 
 router = APIRouter()
 @router.get("/routines", response_model=List[schemas.RoutineOut])
-def get_routines(db: Session = Depends(get_db)):
+def get_routines(user_id: str = Query(...), db: Session = Depends(get_db)):
     db_routines = db.query(models.Routine).all()
     
     # deadline_time이 datetime.time -> str로 변환
