@@ -32,26 +32,33 @@ def login(req: LoginRequest):
         return {"user_id": "test"}
     raise HTTPException(status_code=401, detail="Invalid credentials")
 
+from datetime import datetime, time as time_type
+
 @app.post("/routines", response_model=schemas.RoutineOut)
 def create_routine(routine: schemas.RoutineCreate, db: Session = Depends(get_db)):
-    try:
-        deadline_time_obj = (
-            datetime.strptime(routine.deadline_time, "%H:%M").time()
-            if isinstance(routine.deadline_time, str) else routine.deadline_time
-        )
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid deadline_time format")
+    # ✅ deadline_time 타입 처리
+    if isinstance(routine.deadline_time, str):
+        try:
+            deadline_time_obj = datetime.strptime(routine.deadline_time, "%H:%M").time()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid time format. Use 'HH:MM'.")
+    else:
+        deadline_time_obj = routine.deadline_time
 
-    db_routine = models.Routine(
-        routine_id=str(uuid.uuid4()),
-        user_id=routine.user_id,
-        title=routine.title,
-        type=routine.type,
-        goal_value=routine.goal_value,
-        duration_seconds=routine.duration_seconds,
-        deadline_time=deadline_time_obj,
-        success_note=routine.success_note
-    )
+    # ✅ kwargs로 생성
+    kwargs = {
+        "routine_id": str(uuid.uuid4()),
+        "user_id": routine.user_id,
+        "title": routine.title,
+        "type": routine.type,
+        "goal_value": routine.goal_value,
+        "deadline_time": deadline_time_obj,
+        "success_note": routine.success_note,
+    }
+    if routine.duration_seconds is not None:
+        kwargs["duration_seconds"] = routine.duration_seconds
+
+    db_routine = models.Routine(**kwargs)
     db.add(db_routine)
     db.commit()
     db.refresh(db_routine)
@@ -66,6 +73,7 @@ def create_routine(routine: schemas.RoutineCreate, db: Session = Depends(get_db)
         "deadline_time": db_routine.deadline_time.strftime("%H:%M") if db_routine.deadline_time else None,
         "success_note": db_routine.success_note
     }
+
 
 router = APIRouter()
 @router.get("/routines", response_model=List[schemas.RoutineOut])
