@@ -60,3 +60,11 @@ class AlarmExecutionCreate(BaseModel):
     scheduled_ts: str
     dismissed_ts: str
     routines: List[ExecutionRoutine]
+
+class RoutineUpdate(RoutineCreate):
+    pass
+
+class RoutineDelete(BaseModel):  
+    user_id: str
+class AlarmDelete(BaseModel):
+    user_id: str
