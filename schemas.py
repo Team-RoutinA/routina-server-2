@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import time
+
 
 class RoutineCreate(BaseModel):
     user_id: str
@@ -8,7 +9,7 @@ class RoutineCreate(BaseModel):
     type: str
     goal_value: Optional[int] = None
     duration_seconds: Optional[int] = None
-    deadline_time: Optional[time] = None
+    deadline_time: Optional[str] = None
     success_note: Optional[str] = None
 
 class RoutineOut(RoutineCreate):
@@ -24,9 +25,9 @@ class AlarmCreate(BaseModel):
     user_id: str
     time: str
     status: str
-    sound_volume: float
-    repeat_days: Optional[List[int]] = []
-    routines: List[AlarmRoutineIn]
+    sound_volume: Optional[float] = Field(default=0.8)
+    repeat_days: Optional[list[int]] = []
+    routines: list["AlarmRoutineIn"]
 
 class AlarmUpdate(BaseModel):
     time: Optional[str]
@@ -36,7 +37,7 @@ class AlarmUpdate(BaseModel):
 
 class AlarmOut(BaseModel):
     alarm_id: str
-    time: time
+    time: str
     status: str
     routines: List[RoutineOut]
 
@@ -68,3 +69,14 @@ class RoutineDelete(BaseModel):
     user_id: str
 class AlarmDelete(BaseModel):
     user_id: str
+class AlarmRoutineOut(BaseModel):
+    routine_id: str
+    order: int
+
+class AlarmOut(BaseModel):
+    alarm_id: str
+    time: str
+    status: str
+    sound_volume: float
+    repeat_days: List[int]
+    routines: List[AlarmRoutineOut]

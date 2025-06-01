@@ -5,6 +5,8 @@ import models, schemas
 import uuid
 from typing import List
 from pydantic import BaseModel
+from datetime import time as time_type
+from datetime import datetime
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -30,14 +32,36 @@ def login(req: LoginRequest):
 
 @app.post("/routines", response_model=schemas.RoutineOut)
 def create_routine(routine: schemas.RoutineCreate, db: Session = Depends(get_db)):
+    deadline_time_obj = (
+        datetime.strptime(routine.deadline_time, "%H:%M").time()
+        if routine.deadline_time else None
+    )
     db_routine = models.Routine(
         routine_id=str(uuid.uuid4()),
-        **routine.dict()
+        user_id=routine.user_id,
+        title=routine.title,
+        type=routine.type,
+        goal_value=routine.goal_value,
+        duration_seconds=routine.duration_seconds,
+        deadline_time=deadline_time_obj,
+        success_note=routine.success_note
     )
     db.add(db_routine)
     db.commit()
     db.refresh(db_routine)
-    return db_routine
+
+    # ✅ deadline_time을 문자열로 바꿔서 리턴
+    return {
+        "routine_id": db_routine.routine_id,
+        "user_id": db_routine.user_id,
+        "title": db_routine.title,
+        "type": db_routine.type,
+        "goal_value": db_routine.goal_value,
+        "duration_seconds": db_routine.duration_seconds,
+        "deadline_time": db_routine.deadline_time.strftime("%H:%M") if db_routine.deadline_time else None,
+        "success_note": db_routine.success_note
+    }
+
 
 @app.get("/routines", response_model=List[schemas.RoutineOut])
 def get_routines(user_id: str, db: Session = Depends(get_db)):
@@ -46,12 +70,13 @@ def get_routines(user_id: str, db: Session = Depends(get_db)):
 @app.post("/alarms", response_model=schemas.AlarmOut)
 def create_alarm(alarm: schemas.AlarmCreate, db: Session = Depends(get_db)):
     alarm_id = str(uuid.uuid4())
+    time_obj = time_type.fromisoformat(alarm.time)
     db_alarm = models.Alarm(
         alarm_id=alarm_id,
         user_id=alarm.user_id,
-        time=alarm.time,
+        time=alarm.time if isinstance(alarm.time, time_type) else time_type.fromisoformat(alarm.time),
         status=alarm.status,
-        sound_volume=alarm.sound_volume,
+        sound_volume=alarm.sound_volume if alarm.sound_volume is not None else 0.8,
         repeat_days=','.join(map(str, alarm.repeat_days or []))
     )
     db.add(db_alarm)
@@ -203,17 +228,21 @@ def update_alarm_status(alarm_id: str, status: str, db: Session = Depends(get_db
     return {"message": f"Alarm status updated to {status}"}
 
 # 알람 전체 조회
-@app.get("/alarms")
+@app.get("/alarms", response_model=List[schemas.AlarmOut])
 def get_alarms(user_id: str, db: Session = Depends(get_db)):
     alarms = db.query(models.Alarm).filter(models.Alarm.user_id == user_id).all()
-    return [
-        {
-            "alarm_id": a.alarm_id,
-            "time": a.time,
-            "status": a.status,
-            "repeat_days": [int(x) for x in a.repeat_days.split(",") if x.strip()]
-        } for a in alarms
-    ]
+    result = []
+    for alarm in alarms:
+        routines = db.query(models.AlarmRoutine).filter(models.AlarmRoutine.alarm_id == alarm.alarm_id).order_by(models.AlarmRoutine.order).all()
+        result.append({
+            "alarm_id": alarm.alarm_id,
+            "time": alarm.time,
+            "status": alarm.status,
+            "sound_volume": alarm.sound_volume,
+            "repeat_days": list(map(int, alarm.repeat_days.split(','))) if alarm.repeat_days else [],
+            "routines": [{"routine_id": r.routine_id, "order": r.order} for r in routines]
+        })
+    return result
 
 # 특정 알람 조회
 @app.get("/alarms/{alarm_id}")
