@@ -1,16 +1,11 @@
-from fastapi import FastAPI, Depends, HTTPException, Path
+from fastapi import FastAPI, Depends, HTTPException, Path, APIRouter, Depends, Header, Query
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine
 import models, schemas
 import uuid
 from typing import List
 from pydantic import BaseModel
-from datetime import time as time_type
-from datetime import datetime
-from fastapi import APIRouter, Depends, Header
-from sqlalchemy.orm import Session
-from fastapi import Query
-from fastapi import Header
+from datetime import time as time_type, datetime
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -107,44 +102,58 @@ def get_routines(user_id: str = Header(..., alias="user-id"), db: Session = Depe
         })
     
     return routines_out
-@app.post("/alarms", response_model=schemas.AlarmOut)
-def create_alarm(alarm: schemas.AlarmCreate,user_id: str = Query(...), db: Session = Depends(get_db)):
+
+@router.post("/alarms", response_model=schemas.AlarmOut)
+def create_alarm(
+    alarm: schemas.AlarmCreate,
+    user_id: str = Header(..., alias="user-id"),
+    db: Session = Depends(get_db),
+):
     alarm_id = str(uuid.uuid4())
-    time_obj = time_type.fromisoformat(alarm.time)
+
+    # time 을 datetime.time 으로 변환
+    time_obj = (
+        alarm.time if isinstance(alarm.time, time_type)
+        else time_type.fromisoformat(alarm.time)
+    )
+
     db_alarm = models.Alarm(
         alarm_id=alarm_id,
-        user_id=alarm.user_id,
-        time=alarm.time if isinstance(alarm.time, time_type) else time_type.fromisoformat(alarm.time),
+        user_id=user_id,
+        time=time_obj,
         status=alarm.status,
-        sound_volume=alarm.sound_volume if alarm.sound_volume is not None else 0.8,
-        repeat_days=','.join(map(str, alarm.repeat_days or []))
+        sound_volume=alarm.sound_volume or 0.8,
+        repeat_days=",".join(map(str, alarm.repeat_days or [])),
     )
     db.add(db_alarm)
     db.commit()
 
+    # 루틴 연결
     for r in alarm.routines:
         db.add(models.AlarmRoutine(
             alr_id=str(uuid.uuid4()),
             alarm_id=alarm_id,
             routine_id=r.routine_id,
-            order=r.order
+            order=r.order,
         ))
     db.commit()
-    for wd in alarm.repeat_days:
+
+    # 반복 요일(옵션)
+    for wd in alarm.repeat_days or []:
         db.add(models.AlarmRepeatDay(
             id=str(uuid.uuid4()),
             alarm_id=alarm_id,
-            weekday=wd
+            weekday=wd,
         ))
     db.commit()
 
     return {
-        "alarm_id": alarm_id,
-        "time": alarm.time.strftime("%H:%M") if isinstance(alarm.time, time_type) else alarm.time,
-        "status": db_alarm.status,
-        "sound_volume": alarm.sound_volume,
-        "routines": alarm.routines,
-        "repeat_days": alarm.repeat_days
+        "alarm_id"     : alarm_id,
+        "time"         : time_obj.strftime("%H:%M"),
+        "status"       : db_alarm.status,
+        "sound_volume" : db_alarm.sound_volume,
+        "repeat_days"  : alarm.repeat_days,
+        "routines"     : alarm.routines,
     }
 
 @app.post("/alarms/{alarm_id}/repeat-days", response_model=List[schemas.AlarmRepeatDayOut])

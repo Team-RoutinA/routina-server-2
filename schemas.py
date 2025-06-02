@@ -29,7 +29,6 @@ class AlarmRoutineIn(BaseModel):
     routine_id: str
     order: int
 class AlarmCreate(BaseModel):
-    user_id: str
     time: str
     status: str
     sound_volume: Optional[float] = Field(default=0.8)
