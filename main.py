@@ -10,7 +10,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
 from fastapi import Query
-
+from fastapi import Header
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -194,43 +194,36 @@ def get_dashboard(user_id: str = Query(...), db: Session = Depends(get_db)):
 @app.put("/routines/{routine_id}", response_model=schemas.RoutineOut)
 def update_routine(
     routine_id: str,
-    update: schemas.RoutineCreate,  # or RoutineUpdate if you made separate schema
-    user_id: str = Query(...),
+    update: schemas.RoutineCreate,        # 별도 Update 스키마면 교체
+    user_id: str = Header(..., alias="user-id"),   # ① 헤더로
     db: Session = Depends(get_db)
 ):
-    r = db.query(models.Routine).filter(
-        models.Routine.routine_id == routine_id,
-        models.Routine.user_id == update.user_id
-    ).first()
-
+    # ② 본인 루틴인지 확인
+    r = (
+        db.query(models.Routine)
+        .filter(
+            models.Routine.routine_id == routine_id,
+            models.Routine.user_id == user_id        # ← 헤더값
+        )
+        .first()
+    )
     if not r:
         raise HTTPException(status_code=404, detail="Routine not found")
 
-    # ⏰ deadline_time 변환
-    if update.deadline_time:
-        try:
-            deadline_time_obj = datetime.strptime(update.deadline_time, "%H:%M").time()
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid time format. Use 'HH:MM'.")
-    else:
-        deadline_time_obj = None
+    # deadline_time 변환
+    r.deadline_time = (
+        datetime.strptime(update.deadline_time, "%H:%M").time()
+        if update.deadline_time else None
+    )
 
-    # 📌 deadline_time은 수동으로 먼저 설정
-    r.deadline_time = deadline_time_obj
-
-    # 🧹 user_id는 변경하지 않도록 제거
-    update_data = update.dict()
-    update_data.pop("user_id", None)
-    update_data.pop("deadline_time", None)  # 이미 따로 처리했으므로 제외
-
-    # 🔁 나머지 필드 업데이트
-    for key, value in update_data.items():
-        setattr(r, key, value)
+    # user_id, deadline_time 은 수정 못 하게 제외
+    data = update.dict(exclude_unset=True, exclude={"user_id", "deadline_time"})
+    for k, v in data.items():
+        setattr(r, k, v)
 
     db.commit()
     db.refresh(r)
 
-    # ⏎ 응답 모델 반환 (자동 변환)
     return {
         "routine_id": r.routine_id,
         "user_id": r.user_id,
