@@ -337,7 +337,10 @@ def update_alarm_status(alarm_id: str, status: str, db: Session = Depends(get_db
 
 # 알람 전체 조회
 @app.get("/alarms", response_model=List[schemas.AlarmOut])
-def get_alarms(user_id: str = Query(...), db: Session = Depends(get_db)):
+def get_alarms(
+    user_id: str = Header(..., alias="user-id"),
+    db: Session = Depends(get_db)
+):
     alarms = db.query(models.Alarm).filter(models.Alarm.user_id == user_id).all()
     result = []
     for alarm in alarms:
