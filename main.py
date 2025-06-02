@@ -245,9 +245,25 @@ def update_routine(
 
 # 루틴 삭제
 @app.delete("/routines/{routine_id}")
-def delete_routine(routine_id: str, req: schemas.RoutineDelete, db: Session = Depends(get_db)):
-    db.query(models.Routine).filter(models.Routine.routine_id == routine_id, models.Routine.user_id == req.user_id).delete()
+# def delete_routine(routine_id: str, req: schemas.RoutineDelete, db: Session = Depends(get_db)):
+#     db.query(models.Routine).filter(models.Routine.routine_id == routine_id, models.Routine.user_id == req.user_id).delete()
+#     db.commit()
+def delete_routine(
+    routine_id: str,
+    user_id: str = Header(..., alias="user-id"),
+    db: Session = Depends(get_db)
+):
+    deleted = (
+        db.query(models.Routine)
+        .filter(models.Routine.routine_id == routine_id,
+                models.Routine.user_id == user_id)
+        .delete()
+    )
     db.commit()
+
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="Routine not found")
+    
     return {"message": "Routine deleted"}
 
 # 알람 삭제
