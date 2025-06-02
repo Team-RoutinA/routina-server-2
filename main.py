@@ -269,12 +269,30 @@ def delete_routine(
     return {"message": "Routine deleted"}
 
 # 알람 삭제
-@app.delete("/alarms/{alarm_id}")
-def delete_alarm(alarm_id: str, req: schemas.AlarmDelete, db: Session = Depends(get_db)):
-    db.query(models.AlarmRoutine).filter(models.AlarmRoutine.alarm_id == alarm_id).delete()
-    db.query(models.Alarm).filter(models.Alarm.alarm_id == alarm_id, models.Alarm.user_id == req.user_id).delete()
+@router.delete(
+    "/alarms/{alarm_id}",
+    status_code=204,
+    summary="Delete alarm",
+    description="Remove an alarm owned by the given user-id"
+)
+def delete_alarm(
+    alarm_id: str = Path(..., description="Alarm UUID"),
+    user_id: str = Header(..., alias="user-id", description="Authenticated user ID"),
+    db: Session = Depends(get_db),
+) -> None:
+    db.query(models.AlarmRoutine).filter_by(alarm_id=alarm_id).delete()
+    db.query(models.AlarmRepeatDay).filter_by(alarm_id=alarm_id).delete()
+
+    deleted = (
+        db.query(models.Alarm)
+        .filter(models.Alarm.alarm_id == alarm_id, models.Alarm.user_id == user_id)
+        .delete()
+    )
     db.commit()
-    return {"message": "Alarm deleted"}
+
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="Alarm not found")
+
 
 # 수행 기록 저장
 @app.post("/alarm-executions")
