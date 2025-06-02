@@ -344,14 +344,27 @@ def routine_stats(user_id: str, db: Session = Depends(get_db)):
         {"title": title, "done": int(done or 0), "total": total, "rate": round(done / total, 2) if total > 0 else 0.0}
         for title, total, done in data
     ]
-@app.patch("/alarms/{alarm_id}/status")
-def update_alarm_status(alarm_id: str, status: str, db: Session = Depends(get_db)):
-    alarm = db.query(models.Alarm).filter(models.Alarm.alarm_id == alarm_id).first()
-    if not alarm:
-        raise HTTPException(status_code=404, detail="Alarm not found")
-    alarm.status = status
+# 알람 활성화 / 비활성화 토글
+@router.patch("/alarms/{alarm_id}/status", status_code=204)
+def update_alarm_status(
+    alarm_id: str = Path(..., description="Alarm UUID"),
+    status: str = Query(..., regex="^(Active|Inactive)$"),
+    user_id: str = Header(..., alias="user-id"),
+    db: Session = Depends(get_db)
+):
+    # 내 알람인지 확인 후 상태만 업데이트
+    updated = (
+        db.query(models.Alarm)
+        .filter(models.Alarm.alarm_id == alarm_id, models.Alarm.user_id == user_id)
+        .update({"status": status})
+    )
     db.commit()
-    return {"message": f"Alarm status updated to {status}"}
+
+    if updated == 0:
+        raise HTTPException(status_code=404, detail="Alarm not found")
+
+    # 204 No Content → 반환 바디 없음
+
 
 # 알람 전체 조회
 @app.get("/alarms", response_model=List[schemas.AlarmOut])
