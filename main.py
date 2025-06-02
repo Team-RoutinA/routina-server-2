@@ -83,8 +83,14 @@ def create_routine(
 
 router = APIRouter()
 @router.get("/routines", response_model=List[schemas.RoutineOut])
-def get_routines(user_id: str = Query(...), db: Session = Depends(get_db)):
-    db_routines = db.query(models.Routine).all()
+# def get_routines(user_id: str = Query(...), db: Session = Depends(get_db)):
+def get_routines(user_id: str = Header(..., alias="user-id"), db: Session = Depends(get_db)):
+    # db_routines = db.query(models.Routine).all()
+    db_routines = (
+        db.query(models.Routine)
+        .filter(models.Routine.user_id == user_id)   # ← 필터 추가
+        .all()
+    )
     
     # deadline_time이 datetime.time -> str로 변환
     routines_out = []
