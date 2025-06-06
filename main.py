@@ -388,7 +388,11 @@ def get_alarms(
 
 # 특정 알람 조회
 @app.get("/alarms/{alarm_id}")
-def get_alarm_detail(alarm_id: str,user_id: str = Query(...), db: Session = Depends(get_db)):
+def get_alarm_detail(
+    alarm_id: str,
+    user_id: str = Header(..., alias="user-id"),
+    db: Session = Depends(get_db)
+):
     alarm = db.query(models.Alarm).filter(models.Alarm.alarm_id == alarm_id).first()
     if not alarm:
         raise HTTPException(status_code=404, detail="Alarm not found")
