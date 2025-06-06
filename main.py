@@ -123,6 +123,7 @@ def create_alarm(
         time=time_obj,
         status=alarm.status,
         sound_volume=alarm.sound_volume or 0.8,
+        vibration_on=alarm.vibration_on,
         repeat_days=",".join(map(str, alarm.repeat_days or [])),
     )
     db.add(db_alarm)
@@ -416,6 +417,8 @@ def get_alarm_detail(
     return {
         "alarm_id": alarm.alarm_id,
         "time": alarm.time.strftime("%H:%M") if alarm.time else None,
+        "sound_volume": alarm.sound_volume,
+        "vibration_on": alarm.vibration_on,
         "status": alarm.status,
         "repeat_days": [r[0] for r in repeat_days],  # 수정
         "routines": routine_list

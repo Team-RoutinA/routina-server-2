@@ -32,6 +32,7 @@ class AlarmCreate(BaseModel):
     time: str
     status: str
     sound_volume: Optional[float] = Field(default=0.8)
+    vibration_on: bool
     repeat_days: Optional[list[int]] = []
     routines: list["AlarmRoutineIn"]
 
