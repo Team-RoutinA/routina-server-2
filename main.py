@@ -6,6 +6,9 @@ import uuid
 from typing import List
 from pydantic import BaseModel
 from datetime import time as time_type, datetime
+from datetime import datetime
+from pytz import timezone
+from collections import defaultdict
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -438,16 +441,31 @@ def get_alarm_detail(
 # 월별 루틴 성공률 달력 (일자별 수행률)
 @app.get("/calendar")
 def calendar_view(user_id: str, year: int, month: int, db: Session = Depends(get_db)):
-    from sqlalchemy import extract, func
-    results = db.query(
-        func.date(models.AlarmExecutionLog.scheduled_ts).label("date"),
-        func.avg(models.AlarmExecutionLog.success_rate).label("avg_rate")
+    # 1. raw 데이터 가져오기
+    rows = db.query(
+        models.AlarmExecutionLog.scheduled_ts,
+        models.AlarmExecutionLog.success_rate
     ).join(models.Alarm, models.Alarm.alarm_id == models.AlarmExecutionLog.alarm_id).filter(
-        models.Alarm.user_id == user_id,
-        extract("year", models.AlarmExecutionLog.scheduled_ts) == year,
-        extract("month", models.AlarmExecutionLog.scheduled_ts) == month
-    ).group_by("date").all()
-    return [{"date": str(r.date), "success_rate": float(round(r.avg_rate, 2))} for r in results]
+        models.Alarm.user_id == user_id
+    ).all()
+
+    kst = timezone("Asia/Seoul")
+    results = defaultdict(list)
+
+    for ts_str, rate in rows:
+        try:
+            dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).astimezone(kst)
+        except:
+            continue
+        if dt.year == year and dt.month == month:
+            date_key = dt.date().isoformat()
+            results[date_key].append(rate)
+
+    # 평균 계산
+    return [
+        {"date": d, "success_rate": round(sum(v) / len(v), 2)}
+        for d, v in results.items()
+    ]
 
 # 주간 피드백 요약
 @app.get("/weekly-feedback")
