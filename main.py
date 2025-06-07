@@ -281,14 +281,25 @@ def delete_alarm(
     user_id: str = Header(..., alias="user-id", description="Authenticated user ID"),
     db: Session = Depends(get_db),
 ) -> None:
+
+    # 🔽 1. 관련된 execution_routine 먼저 삭제
+    exec_ids = db.query(models.AlarmExecutionLog.exec_id).filter_by(alarm_id=alarm_id).subquery()
+    db.query(models.AlarmExecutionRoutine).filter(models.AlarmExecutionRoutine.exec_id.in_(exec_ids)).delete(synchronize_session=False)
+
+    # 🔽 2. 그 다음 execution_log 삭제
+    db.query(models.AlarmExecutionLog).filter_by(alarm_id=alarm_id).delete()
+
+    # 🔽 3. 연결된 루틴 / 요일 삭제
     db.query(models.AlarmRoutine).filter_by(alarm_id=alarm_id).delete()
     db.query(models.AlarmRepeatDay).filter_by(alarm_id=alarm_id).delete()
 
+    # 🔽 4. 마지막으로 알람 삭제
     deleted = (
         db.query(models.Alarm)
         .filter(models.Alarm.alarm_id == alarm_id, models.Alarm.user_id == user_id)
         .delete()
     )
+
     db.commit()
 
     if deleted == 0:
