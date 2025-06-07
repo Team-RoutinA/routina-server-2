@@ -14,6 +14,20 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+from datetime import timedelta
+def get_korean_week(dt: datetime) -> int:
+    # 해당 연도의 첫 일요일 구하기
+    jan1 = datetime(dt.year, 1, 1, tzinfo=dt.tzinfo)
+    jan1_weekday = jan1.weekday()  # 월:0 ~ 일:6
+    days_until_sunday = (6 - jan1_weekday) % 7
+    first_sunday = jan1 + timedelta(days=days_until_sunday)
+
+    # 주차 계산: 첫 일요일부터 얼마나 떨어져 있는지
+    if dt < first_sunday:
+        return 1
+    delta_days = (dt - first_sunday).days
+    return 2 + (delta_days // 7)
+
 def get_db():
     db = SessionLocal()
     try:
@@ -470,23 +484,40 @@ def calendar_view(user_id: str, year: int, month: int, db: Session = Depends(get
 # 주간 피드백 요약
 @app.get("/weekly-feedback")
 def weekly_feedback(user_id: str, db: Session = Depends(get_db)):
-    from sqlalchemy import func, text
-    results = db.execute(text("""
-        SELECT
-            WEEK(scheduled_ts, 1) as week_num,
-            COUNT(*) as total,
-            SUM(completed_routines) as done,
-            ROUND(SUM(completed_routines)/SUM(total_routines), 2) as rate
-        FROM alarm_exec_log
-        JOIN alarm ON alarm_exec_log.alarm_id = alarm.alarm_id
-        WHERE alarm.user_id = :uid
-        GROUP BY week_num
-        ORDER BY week_num DESC
-        LIMIT 4
-    """), {"uid": user_id}).fetchall()
-    return [
-        {"week": r[0], "done": r[1], "completed": int(r[2] or 0), "rate": float(r[3] or 0)} for r in results
+    rows = db.query(
+        models.AlarmExecutionLog.scheduled_ts,
+        models.AlarmExecutionLog.completed_routines,
+        models.AlarmExecutionLog.total_routines
+    ).join(models.Alarm, models.Alarm.alarm_id == models.AlarmExecutionLog.alarm_id).filter(
+        models.Alarm.user_id == user_id
+    ).all()
+
+    kst = timezone("Asia/Seoul")
+    weekly_data = defaultdict(lambda: {"done": 0, "total": 0})
+
+    for ts_str, done, total in rows:
+        try:
+            dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).astimezone(kst)
+            #print(f"📌 UTC: {ts_str} → KST: {dt} → week {get_korean_week(dt)}")
+        except Exception as e:
+            print(f"⚠️ Error parsing {ts_str}: {e}")
+            continue
+        #week = dt.isocalendar()[1]
+        week = get_korean_week(dt)
+        weekly_data[week]["done"] += done
+        weekly_data[week]["total"] += total
+
+    result = [
+        {
+            "week": week,
+            "done": data["done"],
+            "completed": data["total"],
+            "rate": round(data["done"] / data["total"], 2) if data["total"] > 0 else 0.0
+        }
+        for week, data in sorted(weekly_data.items(), reverse=True)[:4]
     ]
+    return result
+
 # 알람 수정 + 반복 요일도 함께 수정
 @app.put("/alarms/{alarm_id}")
 def update_alarm(alarm_id: str, update: schemas.AlarmUpdate,user_id: str = Query(...), db: Session = Depends(get_db)):
