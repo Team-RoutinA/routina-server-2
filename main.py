@@ -41,9 +41,10 @@ class LoginRequest(BaseModel):
     password: str
 
 @app.post("/login")
-def login(req: LoginRequest):
-    if req.email == "test@gmail.com" and req.password == "test":
-        return {"user_id": "test"}
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(models.AppUser).filter(models.AppUser.email == req.email).first()
+    if user and req.password == "test":
+        return {"user_id": user.user_id, "name": user.name}
     raise HTTPException(status_code=401, detail="Invalid credentials")
 
 from datetime import datetime, time as time_type
